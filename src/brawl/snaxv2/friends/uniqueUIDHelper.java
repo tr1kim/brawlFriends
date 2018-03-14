@@ -12,7 +12,7 @@ public class uniqueUIDHelper {
 	public UUID fromTrimmed(String trimmedUUID) throws IllegalArgumentException{
 	    if(trimmedUUID == null) throw new IllegalArgumentException();
 	    StringBuilder builder = new StringBuilder(trimmedUUID.trim());
-	    /* Backwards adding to avoid index adjustments */
+
 	    try {
 	        builder.insert(20, "-");
 	        builder.insert(16, "-");

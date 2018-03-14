@@ -65,23 +65,26 @@ public class friends extends JavaPlugin implements Listener {
 	@EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
 		final Player p = event.getPlayer();
-		BukkitRunnable r = new BukkitRunnable() {
+		
+		//create a new profile if in the db if none excists && same with the friendlist table (specifc per player) and update the stuff
+		BukkitRunnable updatePlayerProfile = new BukkitRunnable() {
 			   @Override
 			   public void run() {
 			      try {
 			         openConnection();
-			         Statement statement = connection.createStatement();
-			         ResultSet profile = statement.executeQuery("SELECT * FROM profiles WHERE UUID='"+ p.getUniqueId().toString().replaceAll("-", "")+"';");
+			         Statement profileQuery = connection.createStatement();
+			         ResultSet profile = profileQuery.executeQuery("SELECT * FROM profiles WHERE UUID='"+ p.getUniqueId().toString().replaceAll("-", "")+"';");
 			         if (!profile.next()) {
-    			         Statement statement2 = connection.createStatement();
-    			         statement2.executeUpdate("INSERT INTO profiles (UUID, ONLINESTAMP, SERVER) VALUES ('"+p.getUniqueId().toString().replaceAll("-", "")+"', 'true', '"+server+"');");
-    			         Statement statement3 = connection.createStatement();
-    			         statement3.executeUpdate("CREATE TABLE "+p.getUniqueId().toString().replaceAll("-", "")+" (UUID VARCHAR(40), STATUS INT);");
+    			         Statement newprofile = connection.createStatement();
+    			         newprofile.executeUpdate("INSERT INTO profiles (UUID, ONLINESTAMP, SERVER) VALUES ('"+p.getUniqueId().toString().replaceAll("-", "")+"', 'true', '"+server+"');");
+    			         Statement friendlisttable = connection.createStatement();
+    			         friendlisttable.executeUpdate("CREATE TABLE "+p.getUniqueId().toString().replaceAll("-", "")+" (UUID VARCHAR(40), STATUS INT);");
 			         }else {
-    			         Statement statement1 = connection.createStatement();
-    			         statement1.executeUpdate("DELETE FROM profiles WHERE UUID = '" + p.getUniqueId().toString().replaceAll("-", "") + "';");
-    			         Statement statement2 = connection.createStatement();
-    			         statement2.executeUpdate("INSERT INTO profiles (UUID, ONLINESTAMP, SERVER) VALUES ('" + p.getUniqueId().toString().replaceAll("-", "") + "', 'true', '" +server + "');");
+			        	 //delete in case excists, otherwise it wont delete and just make a new one with the next statement
+    			         Statement deleteoldprofile = connection.createStatement();
+    			         deleteoldprofile.executeUpdate("DELETE FROM profiles WHERE UUID = '" + p.getUniqueId().toString().replaceAll("-", "") + "';");
+    			         Statement newprofile = connection.createStatement();
+    			         newprofile.executeUpdate("INSERT INTO profiles (UUID, ONLINESTAMP, SERVER) VALUES ('" + p.getUniqueId().toString().replaceAll("-", "") + "', 'true', '" +server + "');");
 			         }	
 			      } catch(ClassNotFoundException e) {
 			         e.printStackTrace();
@@ -90,20 +93,22 @@ public class friends extends JavaPlugin implements Listener {
 			      }
 			   }
 			};
-			 r.runTaskLaterAsynchronously(this, 20);
+			 updatePlayerProfile.runTaskLaterAsynchronously(this, 20); //20 cuz otherwise the player will be offline if switching servers.
 
     }
 	
 	@EventHandler
     public void onPlayerLeave(PlayerQuitEvent event) {
 		final Player p = event.getPlayer();
-		BukkitRunnable r = new BukkitRunnable() {
+		
+		//change the onlinestamp thing to false in the db so /friends knows he is offline
+		BukkitRunnable updateProfile = new BukkitRunnable() {
 			   @Override
 			   public void run() {
 			      try {
 			         openConnection();
-			         Statement statement = connection.createStatement();
-			         statement.executeUpdate("UPDATE profiles SET ONLINESTAMP='false' WHERE UUID = '"+p.getUniqueId().toString().replaceAll("-", "")+"';");
+			         Statement setOffline = connection.createStatement();
+			         setOffline.executeUpdate("UPDATE profiles SET ONLINESTAMP='false' WHERE UUID = '"+p.getUniqueId().toString().replaceAll("-", "")+"';");
 			      } catch(ClassNotFoundException e) {
 			         e.printStackTrace();
 			      } catch(SQLException e) {
@@ -112,13 +117,12 @@ public class friends extends JavaPlugin implements Listener {
 			   }
 			};
 			 
-			r.runTaskAsynchronously(this);
+			updateProfile.runTaskAsynchronously(this);
     }
 	
 	@EventHandler
 	public void onInventoryClick(InventoryClickEvent event) {
-		Player player = (Player) event.getWhoClicked();
-		ItemStack clicked = event.getCurrentItem(); 
+		//cancel inventory click events if the ivn is the friendlist
 		Inventory inventory = event.getInventory(); 
 		if (inventory.getName().equals("Online Friends")) { 
 			event.setCancelled(true); 
@@ -130,27 +134,33 @@ public class friends extends JavaPlugin implements Listener {
     	if (cmd.getName().toUpperCase().equals("FRIENDS")) {
     		if (!(sender instanceof Player)) {sender.sendMessage("Only players can use this command"); return true;}
     		Player p = (Player) sender;
-    		BukkitRunnable r = new BukkitRunnable() {
+    		
+    		//The friendlist opening runnable thing ok ok
+    		BukkitRunnable openFriendList = new BukkitRunnable() {
   			   @Override
   			   public void run() {
   			      try {
+  			    	  //get the friends
   			         openConnection();
-  			         Statement statement = connection.createStatement();
-  			         ResultSet friends = statement.executeQuery("SELECT * FROM " + p.getUniqueId().toString().replaceAll("-", "")+ " WHERE STATUS = 1;");
+  			         Statement friendsQuery = connection.createStatement();
+  			         ResultSet friends = friendsQuery.executeQuery("SELECT * FROM " + p.getUniqueId().toString().replaceAll("-", "")+ " WHERE STATUS = 1;");
   			         if (friends != null) {
   			        	 int slotcounter = 0;
-  			        	 Inventory inv = Bukkit.createInventory(null, 54, "Online Friends");
+  			        	 Inventory friendlistinv = Bukkit.createInventory(null, 54, "Online Friends");
   			        	 while (friends.next()) {
   			        		 boolean isonline = false;
   			        		 String server = "None";
-  		 			         Statement statement2 = connection.createStatement();
-  		  			         ResultSet profile= statement2.executeQuery("SELECT * FROM profiles WHERE UUID = '" + friends.getString("UUID")+ "';");
+  			        		 
+  			        		 //check if the player is online or not and on which server
+  		 			         Statement friendOnlineStatusQuery = connection.createStatement();
+  		  			         ResultSet profile= friendOnlineStatusQuery.executeQuery("SELECT * FROM profiles WHERE UUID = '" + friends.getString("UUID")+ "';");
   		  			         if (profile!=null) {
   		  			        	 while (profile.next()) {
   		  			        		 if (profile.getString("ONLINESTAMP").equals("true")) {isonline = true;}
   		  			        		 server = profile.getString("SERVER");
   		  			        	 }
   		  			         }
+  		  			         //add the player to the friendlist
   		  			         if (isonline) {
 	  			        		ItemStack skull = new ItemStack(397, 1, (short)3);
 	  			        		SkullMeta meta = (SkullMeta) skull.getItemMeta();
@@ -159,10 +169,12 @@ public class friends extends JavaPlugin implements Listener {
 	  			        		meta.setOwner(Bukkit.getOfflinePlayer(uniuid).getName());
 	  			        		meta.setDisplayName(Bukkit.getOfflinePlayer(uniuid).getName() + " (on /server " + server+")");
 	  			        		skull.setItemMeta(meta);
-	  			        		inv.addItem(skull);
+	  			        		friendlistinv.addItem(skull);
   		  			         }
   			        	 }
-  			        	p.openInventory(inv);
+  			        	 
+  			        	//open the friendlist
+  			        	p.openInventory(friendlistinv);
   			         }
   			      } catch(ClassNotFoundException e) {
   			         e.printStackTrace();
@@ -172,24 +184,28 @@ public class friends extends JavaPlugin implements Listener {
   			   }
   			};
   			 
-  			r.runTaskAsynchronously(this);
+  			openFriendList.runTaskAsynchronously(this);
   			return true;
     		
     	}
     	if (cmd.getName().toUpperCase().equals("FRIEND")) {
     		if (!(sender instanceof Player)) {sender.sendMessage("Only players can use this command"); return true;}
     		Player p = (Player) sender;
-    		BukkitRunnable r = new BukkitRunnable() {
+    		
+    		//accept/send a friend request
+    		BukkitRunnable addFriend = new BukkitRunnable() {
     			   @Override
     			   public void run() {
     			      try {
     			         openConnection();
-    			         Statement statement = connection.createStatement();
-    			         ResultSet profiles = statement.executeQuery("SELECT * FROM profiles WHERE UUID = '"+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+"';");
+    			         //check if the player excists in the db in the first place, and if the player does do the shit
+    			         Statement checkProfile = connection.createStatement();
+    			         ResultSet profiles = checkProfile.executeQuery("SELECT * FROM profiles WHERE UUID = '"+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+"';");
     			         if (profiles != null) {
     			        	 boolean is = false;
     			        	 while(profiles.next()) {
     			        		 is = true;
+    			        		 //check if a friend request has already been sent by the other player, and if so handle accordingly
     	    			         Statement ownreq = connection.createStatement();
     	    			         ResultSet OwnPlayerStatus = ownreq.executeQuery("SELECT * FROM "+ p.getUniqueId().toString().replaceAll("-", "") +" WHERE UUID = '"+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+ "'");
     	    			         if (OwnPlayerStatus != null) {
@@ -206,8 +222,10 @@ public class friends extends JavaPlugin implements Listener {
     	    			        		 }
     	    			        	 }
     	    			         }
-    	    			         Statement statement1 = connection.createStatement();
-    	    			         ResultSet OtherPlayerStatus = statement1.executeQuery("SELECT * FROM "+ Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "") +" WHERE UUID = '"+p.getUniqueId().toString().replaceAll("-", "")+ "'");
+    	    			         
+    	    			         //send a friend request (if the other player hasnt already sent one)
+    	    			         Statement otherPlayersFriendList = connection.createStatement();
+    	    			         ResultSet OtherPlayerStatus = otherPlayersFriendList.executeQuery("SELECT * FROM "+ Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "") +" WHERE UUID = '"+p.getUniqueId().toString().replaceAll("-", "")+ "'");
     	    			         boolean is2 = false;
     	    			         if (OtherPlayerStatus != null) {
 	    	    			         while (OtherPlayerStatus.next()) {
@@ -218,11 +236,12 @@ public class friends extends JavaPlugin implements Listener {
 	    	    			        		 p.sendMessage("You have already sent a friend request to this player");
 	    	    			        	 } 	    			         }
     	    			         }if (!is2) {
-	    	    			         Statement statement2 = connection.createStatement();
-	    	    			         statement2.executeUpdate("INSERT INTO "+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+" (UUID, STATUS) VALUES ('"+p.getUniqueId().toString().replaceAll("-", "")+"', 0)");
+	    	    			         Statement makeFriendRequest = connection.createStatement();
+	    	    			         makeFriendRequest.executeUpdate("INSERT INTO "+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+" (UUID, STATUS) VALUES ('"+p.getUniqueId().toString().replaceAll("-", "")+"', 0)");
 	    	    			         p.sendMessage("You have sent a friend request to " + args[0]);
     	    			         }
     			        	 }
+    			        	 //if is = true the player doesnt excist as it was set to false in profiles.next()
     			        	 if (!is) {
     			        		 p.sendMessage("Player not found");
     			        	 }
@@ -235,7 +254,7 @@ public class friends extends JavaPlugin implements Listener {
     			   }
     			};
     			 
-    			r.runTaskAsynchronously(this);
+    			addFriend.runTaskAsynchronously(this);
     			return true;	
     	}
     	if (cmd.getName().toUpperCase().equals("UNFRIEND")) {
@@ -246,8 +265,10 @@ public class friends extends JavaPlugin implements Listener {
  			   public void run() {
  			      try {
  			         openConnection();
- 			         Statement statement = connection.createStatement();
- 			         ResultSet profile = statement.executeQuery("SELECT * FROM profiles WHERE UUID = '"+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+"';");
+ 			         
+ 			         //check if player excists in db and if then unfriend by just deleting each player from each players friendlist table thing.
+ 			         Statement checkProfile = connection.createStatement();
+ 			         ResultSet profile = checkProfile.executeQuery("SELECT * FROM profiles WHERE UUID = '"+Bukkit.getOfflinePlayer(args[0]).getUniqueId().toString().replaceAll("-", "")+"';");
  			         if (profile != null) {
  			        	 boolean is = true;
  			        	 while (profile.next()) {
